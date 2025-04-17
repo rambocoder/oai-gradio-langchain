@@ -32,7 +32,7 @@ def guard_message(message):
         return True
     return False
 
-def process_message_stream(message, history):
+def process_message_stream(message, history, capitalize_response):
     global public_history, shadow_history
 
     # Check for the guard condition
@@ -91,7 +91,10 @@ def process_message_stream(message, history):
             delta = chunk.choices[0].delta.content
             if delta:
                 reply += delta
-                yield reply  # Stream the partial response to the UI
+                if capitalize_response:
+                    yield reply.upper()  # Capitalize the response if checkbox is selected
+                else:
+                    yield reply  # Stream the partial response to the UI
     except Exception as e:
         yield f"Error: {str(e)}"
         return
@@ -100,15 +103,20 @@ def process_message_stream(message, history):
     public_history.append({"role": "user", "content": [{"type": "text", "text": text}]})
     public_history.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
 
+# Add a checkbox for capitalizing the response
+capitalize_checkbox = gr.Checkbox(label="CAPITALIZE RESPONSE", value=False)
+
 demo = gr.ChatInterface(
     fn=process_message_stream, 
+    additional_inputs_accordion=gr.Accordion(label="⚙️ Parameters", open=False, render=False),
+    additional_inputs=[capitalize_checkbox],  # Add the checkbox as an input
     type="messages", 
     examples=[
-        {"text": "2+2=?", "files": []},
-        {"text": "duck you", "files": []}
-    ], 
+        [{"text": "2+2=?", "files": []}],
+        [{"text": "duck you", "files": []}]
+    ],
     multimodal=True,
-    textbox=gr.MultimodalTextbox(file_count="multiple", file_types=["image"], sources=["upload", "microphone"])
+    textbox=gr.MultimodalTextbox(file_count="multiple", file_types=["image"], sources=["upload"])
 )
 
 demo.launch()
