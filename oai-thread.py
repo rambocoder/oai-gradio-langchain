@@ -32,14 +32,15 @@ def guard_message(message):
         return True
     return False
 
-def process_message(message, history):
+def process_message_stream(message, history):
     global public_history, shadow_history
 
     # Check for the guard condition
     if guard_message(message):
         public_history.append({"role": "user", "content": [{"type": "text", "text": message["text"]}]})
         public_history.append({"role": "assistant", "content": [{"type": "text", "text": "not up in here"}]})
-        return "not up in here"
+        yield "not up in here"
+        return
 
     # Update shadow history
     shadow_history = history if history else []
@@ -78,24 +79,29 @@ def process_message(message, history):
         })
 
     try:
+        # Stream the response from OpenAI
         response = client.chat.completions.create(
             model="gpt-4o-mini",  # vision capabilities
-            messages=shadow_messages
+            messages=shadow_messages,
+            stream=True,  # Enable streaming
+            max_tokens=1000
         )
-        # Extract the assistant's response
-        reply = response.choices[0].message.content
+        reply = ""
+        for chunk in response:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                reply += delta
+                yield reply  # Stream the partial response to the UI
     except Exception as e:
-        reply = f"Error: {str(e)}"
+        yield f"Error: {str(e)}"
+        return
 
     # Update public history
     public_history.append({"role": "user", "content": [{"type": "text", "text": text}]})
     public_history.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
 
-    
-    return reply
-
 demo = gr.ChatInterface(
-    fn=process_message, 
+    fn=process_message_stream, 
     type="messages", 
     examples=[
         {"text": "2+2=?", "files": []},
