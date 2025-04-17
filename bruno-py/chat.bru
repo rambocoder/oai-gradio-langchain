@@ -1,0 +1,23 @@
+meta {
+  name: chat
+  type: http
+  seq: 3
+}
+
+post {
+  url: http://127.0.0.1:8000/api/completion
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "messages": [
+      {
+        "id": "1",
+        "role": "user",
+        "content": "What is 2+2"
+      }
+    ]
+  }
+}
