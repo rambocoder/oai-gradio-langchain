@@ -13,6 +13,8 @@ openai = "*"
 python-dotenv = "*"
 watchdog = "*"
 gradio = "*"
+mlflow = "*"
+pandas = "*"
 
 [dev-packages]
 watchdog = "*"
