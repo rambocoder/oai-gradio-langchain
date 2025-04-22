@@ -1,0 +1,79 @@
+prompts:
+  - "Answer the following question concisely: {{question}}"
+
+providers:
+  - id: 'file://custom.py:call_api'
+    label: 'Test script 1'
+    config:
+      temperature: 0.1
+  - id: 'file://custom.py:call_api'
+    label: 'Test script 2'
+    config:
+      temperature: 0.7
+      additionalOption: "UUUUUUUUUUUUUUUUUUU" # Example of an additional option
+      # env:
+      #   MY_API_KEY: "{{env.MY_SECRET_KEY}}" # Example of passing environment variables
+      # Load from a JSON file
+      # modelSettings: 'file://configs/model_settings.json'
+
+      # # Or a YAML file
+      # templates: 'file://configs/prompt_templates.yaml'
+
+      # # Or a JavaScript file
+      # preprocessing: 'file://configs/preprocess.js:getPreprocessingConfig'
+
+      # # Or a Python file
+      # extra_body: 'file://configs/extra_body.py:get_extra_body'
+
+      # # You can also nest file references within an object
+      # advanced:
+      #   {
+      #     systemPromptPrefix: 'file://templates/system_prompt.txt',
+      #     guardrails: 'file://configs/guardrails.json',
+      #     metrics:
+      #       {
+      #         evaluation: 'file://configs/metrics/eval.yaml',
+      #         reporting: 'file://configs/metrics/reporting.js:getReportingConfig',
+      #       },
+      #   }
+
+# Define the test cases for evaluation.
+tests:
+  - description: "Test Case 1: First US President"
+    vars: # Variables to inject into the prompt template
+      question: "Who was the first US president?"
+      userVariable: "BBBBBBBBBBB" # Example of a user variable
+    assert: # Define conditions for a successful test
+      - type: icontains # Check if the output (case-insensitive) contains the value
+        value: "George Washington"
+      # You could add more assertions, e.g., checking for length, regex, etc.
+
+  - description: "Test Case 2: WWII End Date"
+    vars:
+      question: "What year did World War II end?"
+    assert:
+      - type: contains # Check if the output (case-sensitive) contains the value
+        value: "1945" # Exact year match
+
+  - description: "Test Case 3: Capital of France"
+    vars:
+      question: "What is the capital of France?"
+    assert:
+      - type: equals # Check if the output exactly matches the value
+        value: "Paris"
+
+  - description: "Test Case 5: Basic Math"
+    vars:
+      question: "What is 2+2?"
+    assert:
+      - type: equals
+        value: "2"  
+
+  - description: "Test Case 4: Unknown Question"
+    vars:
+      question: "What is the color of the sky on Mars?"
+    assert:
+      - type: icontains # Check if the default "don't know" response is given
+        value: "don't have information"      
+  
+         
