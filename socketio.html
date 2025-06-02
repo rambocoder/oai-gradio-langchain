@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiroom Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col">
+    <header class="bg-gray-800 py-4 px-6 flex justify-between items-center">
+        <h1 class="text-2xl font-bold">Multiroom Chat</h1>
+        <div class="flex items-center">
+            <span id="current-user" class="mr-4"></span>
+            <div class="relative">
+                <select id="room-select" class="bg-gray-700 text-white py-2 px-4 rounded focus:outline-none">
+                    <option value="general">#general</option>
+                    <option value="random">#random</option>
+                    <option value="coding">#coding</option>
+                </select>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-6 flex">
+        <div id="user-list" class="w-1/5 bg-gray-800 p-4 rounded-lg mr-4 hidden md:block">
+            <h2 class="text-lg font-semibold mb-4">Online Users</h2>
+            <ul id="users" class="space-y-2">
+                <!-- Users will be added here -->
+            </ul>
+        </div>
+
+        <div class="flex-grow bg-gray-800 p-6 rounded-lg flex flex-col">
+            <div id="chatbox" class="flex-grow overflow-y-auto mb-4 space-y-4">
+                <!-- Messages will be added here -->
+            </div>
+
+            <div class="flex">
+                <input type="text" id="messageInput" class="flex-grow bg-gray-700 text-white py-3 px-4 rounded-l-lg focus:outline-none" placeholder="Enter your message...">
+                <button id="sendMessageBtn" class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-r-lg focus:outline-none">Send</button>
+            </div>
+        </div>
+    </main>
+
+    <div id="typing-indicator" class="fixed bottom-0 left-0 w-full bg-gray-700 text-center py-2 text-sm opacity-0 transition-opacity duration-300">
+        Someone is typing...
+    </div>
+
+    <script>
+        const socket = io("/socket");
+        const messageInput = document.getElementById('messageInput');
+        const sendMessageBtn = document.getElementById('sendMessageBtn');
+        const chatbox = document.getElementById('chatbox');
+        const roomSelect = document.getElementById('room-select');
+        const usersList = document.getElementById('users');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const currentUserSpan = document.getElementById('current-user');
+
+        let currentRoom = roomSelect.value;
+        let username = ''; // Will be set after joining
+
+        // Ask for username on load
+        window.onload = () => {
+            username = prompt("Please enter your username:");
+            if (username) {
+                currentUserSpan.textContent = `Logged in as: ${username}`;
+                socket.emit('join', { username: username, room: currentRoom });
+            } else {
+                alert("Username is required to join the chat.");
+                window.location.reload(); // Refresh to try again
+            }
+        };
+
+
+        // Switch rooms
+        roomSelect.addEventListener('change', (event) => {
+            const newRoom = event.target.value;
+            socket.emit('leave', { room: currentRoom });
+            currentRoom = newRoom;
+            chatbox.innerHTML = ''; // Clear chatbox on room change
+            socket.emit('join', { username: username, room: currentRoom });
+        });
+
+        // Send message
+        sendMessageBtn.addEventListener('click', () => {
+            sendMessage();
+        });
+
+        messageInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+            } else {
+                socket.emit('typing', { room: currentRoom });
+            }
+        });
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message) {
+                socket.emit('message', { room: currentRoom, message: message });
+                messageInput.value = '';
+            }
+        }
+
+        // Receive message
+        socket.on('message', (data) => {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('p-3', 'rounded-lg', 'max-w-xs', 'break-words', 'whitespace-pre-wrap');
+
+            const senderSpan = document.createElement('span');
+            senderSpan.classList.add('font-bold', 'mr-2');
+            senderSpan.textContent = `${data.username}:`;
+
+            const messageText = document.createElement('span');
+            messageText.textContent = data.message;
+
+            messageElement.appendChild(senderSpan);
+            messageElement.appendChild(messageText);
+
+            if (data.username === username) {
+                 messageElement.classList.add('bg-blue-600', 'ml-auto');
+            } else {
+                 messageElement.classList.add('bg-gray-700', 'mr-auto');
+            }
+
+
+            chatbox.appendChild(messageElement);
+            chatbox.scrollTop = chatbox.scrollHeight; // Auto-scroll
+        });
+
+         // Update user list
+        socket.on('user_list', (data) => {
+            usersList.innerHTML = ''; // Clear current list
+            data.users.forEach(user => {
+                const userItem = document.createElement('li');
+                userItem.classList.add('text-gray-400');
+                userItem.textContent = user;
+                usersList.appendChild(userItem);
+            });
+        });
+
+
+        // Typing indicator
+        let typingTimeout;
+        socket.on('typing', () => {
+            typingIndicator.classList.remove('opacity-0');
+            typingIndicator.classList.add('opacity-100');
+
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                typingIndicator.classList.remove('opacity-100');
+                typingIndicator.classList.add('opacity-0');
+            }, 2000); // Hide after 2 seconds of no typing
+        });
+
+        // Surprising feature: Message reactions (basic implementation)
+        chatbox.addEventListener('click', (event) => {
+            const messageElement = event.target.closest('.p-3.rounded-lg');
+            if (messageElement) {
+                 // Simple toggle of a "liked" class - server-side would handle persistence
+                messageElement.classList.toggle('border-2');
+                messageElement.classList.toggle('border-yellow-500');
+            }
+        });
+
+
+    </script>
+</body>
+</html>
