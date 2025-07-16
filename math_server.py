@@ -1,4 +1,6 @@
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
+
+from listing_middleware import ListingFilterMiddleware
 
 mcp = FastMCP("Math")
 
