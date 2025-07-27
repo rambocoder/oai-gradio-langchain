@@ -6,17 +6,26 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 import os
 
-import asyncio
+import httpx
+# To disable SSL verification, use verify=False when creating a client or making requests
+# Example: client = httpx.Client(verify=False)
 
-from langchain.chat_models import init_chat_model
-model = init_chat_model("openai:gpt-4.1")
+import asyncio
+from typing import cast
+
+# from langchain.chat_models import init_chat_model
+# model = init_chat_model("openai:gpt-4.1")
 
 # https://langchain-ai.github.io/langgraph/agents/mcp/#use-mcp-tools
 
 # openai_api_key = os.environ['OPENAI_API_KEY']
 
 # Initialize the ChatOpenAI model
-model = ChatOpenAI(temperature=0.0, model="gpt-4o-mini")
+os.environ["HTTPX_VERIFY"] = "0"  # Disable SSL verification globally for httpx
+os.environ["HTTPX_VERIFY"] = "false"  # Disable SSL verification globally for httpx
+http_client = httpx.Client(verify=False)
+
+model = ChatOpenAI(temperature=0.0, model="gpt-4o-mini", http_client=http_client)
 
 client = MultiServerMCPClient(
     {
@@ -60,15 +69,35 @@ async def main():
     # print("Weather response:", weather_response)
 
     print("Welcome to the CLI Chat Application! Type 'exit' to quit.")
-    conversation_history = []
+    
+
+    state = MessagesState(messages=[])
 
     while True:
         user_input = input("You: ")
         if user_input.lower() == 'exit':
             break
 
-        conversation_history.append({"role": "user", "content": user_input})
-        weather_response = await graph.ainvoke({"messages": conversation_history})
-        print("Bot:", weather_response["messages"][-1].content)
+        state["messages"].append(HumanMessage(content=user_input))
+        # Use astream to process the conversation and collect the final state
+        final_state = None
+        # async for message, config in graph.astream(state, stream_mode="messages"):
+        #     final_state = message  # message is the updated state at each step
+
+        # if final_state is not None:
+        #     # issue is that final_state is a AIMessageChunk
+        #     state = cast(MessagesState, final_state)
+        #     print("Bot:", state["messages"][-1].content)
+        # else:
+        #     print("Bot: (no response)")
+        async for current_state in graph.astream(state, stream_mode="values"):
+            final_state = current_state  # This is the complete state
+        
+        if final_state is not None:
+            state = cast(MessagesState, final_state)
+            print("Bot:", state["messages"][-1].content)
+        else:
+            print("Bot: (no response)")
+
 
 asyncio.run(main())
