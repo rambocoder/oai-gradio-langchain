@@ -16,7 +16,6 @@ gradio = "*"
 mlflow = "*"
 pandas = "*"
 langchain-mcp-adapters = "*"
-langgraph = "*"
 langchain-openai = "*"
 fastmcp = "*"
 

@@ -13,3 +13,4 @@ books
 .DS_Store
 mlruns
 *.log
+state.json

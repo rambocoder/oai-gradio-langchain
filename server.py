@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import List, Optional
 # from typing import list
@@ -8,9 +9,13 @@ from pydantic import BaseModel
 from fastapi.responses import (
     StreamingResponse,
 )
+from langgraph.graph import StateGraph, MessagesState, START
+from langchain_oai_mcp_manual import build_graph, load_state
+from langchain.schema import AIMessage, HumanMessage, SystemMessage
 
 from dotenv import load_dotenv
 import os
+import uvicorn
 
 # Load environment variables from .env file
 load_dotenv()
@@ -68,6 +73,46 @@ async def stream(request: Request, payload: ChatPayload):
         media_type="text/event-stream",
     )
 
+@app.post("/chat")
+async def chat_endpoint(request: Request):
+    data = await request.json()
+    user_message = data["message"]
+
+    # Load or initialize state as needed
+    state = load_state() or MessagesState(messages=[])
+    state["messages"].append(HumanMessage(content=user_message))
+
+    graph = await build_graph()
+
+    async def event_stream():
+        queue = asyncio.Queue()
+
+        async def stream_callback(chunk: str):
+            await queue.put(chunk)
+
+        config = {
+            "configurable": {"thread_id": "conversation_1"},
+            "stream_callback": stream_callback,
+        }
+
+        # Run the graph in the background
+        async def run_graph():
+            async for _ in graph.astream(state, stream_mode="values", config=config):
+                pass
+            await queue.put(None)  # Sentinel to signal end
+
+        task = asyncio.create_task(run_graph())
+
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
+            yield chunk
+
+        await task
+
+    return StreamingResponse(event_stream(), media_type="text/plain")
+
 class HelloWorldParams(BaseModel):
     content: Optional[str] = "Default parameter"
 
@@ -75,4 +120,6 @@ class HelloWorldParams(BaseModel):
 async def hello(params: HelloWorldParams = Depends()):
     return {"params": params.model_dump()}
 
-# uvicorn server:app --reload
+
+if __name__ == "__main__":
+        uvicorn.run("server:app", host="0.0.0.0", port=9090, reload=True)

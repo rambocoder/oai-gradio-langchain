@@ -1,17 +1,22 @@
+import json
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph, MessagesState, START
 from langgraph.prebuilt import ToolNode, tools_condition
 from dotenv import load_dotenv
+
 load_dotenv()
 from langchain_openai import ChatOpenAI
 import os
 
 import httpx
+
 # To disable SSL verification, use verify=False when creating a client or making requests
 # Example: client = httpx.Client(verify=False)
 
 import asyncio
 from typing import cast
+from langgraph.checkpoint.mongodb import AsyncMongoDBSaver
+from langchain.schema import AIMessage, HumanMessage, SystemMessage
 
 # from langchain.chat_models import init_chat_model
 # model = init_chat_model("openai:gpt-4.1")
@@ -29,12 +34,12 @@ model = ChatOpenAI(temperature=0.0, model="gpt-4o-mini", http_client=http_client
 
 client = MultiServerMCPClient(
     {
-        "math": {
-            "command": "python",
-            # Make sure to update to the full absolute path to your math_server.py file
-            "args": ["./math_server.py"],
-            "transport": "stdio",
-        },
+        # "math": {
+        #     "command": "python",
+        #     # Make sure to update to the full absolute path to your math_server.py file
+        #     "args": ["./math_server.py"],
+        #     "transport": "stdio",
+        # },
         "weather": {
             # make sure you start your weather server on port 8000
             "url": "http://localhost:8000/mcp/",
@@ -43,7 +48,6 @@ client = MultiServerMCPClient(
     }
 )
 
-
 async def main():
     tools = await client.get_tools()
 
@@ -51,53 +55,56 @@ async def main():
         response = model.bind_tools(tools).invoke(state["messages"])
         return {"messages": response}
 
-    builder = StateGraph(MessagesState)
-    builder.add_node(call_model)
-    builder.add_node(ToolNode(tools))
-    builder.add_edge(START, "call_model")
-    builder.add_conditional_edges(
-        "call_model",
-        tools_condition,
-    )
-    builder.add_edge("tools", "call_model")
-    graph = builder.compile()
-    from langchain.schema import HumanMessage
-    # math_response = await graph.ainvoke(MessagesState(messages=[HumanMessage(content="what's (3 + 5) x 12?")]))
+    conn_string = os.environ.get("MONGODB_URL", "mongodb://localhost:27017")
 
-    # print("Math response:", math_response)
-    # weather_response = await graph.ainvoke({"messages": "what is the weather in nyc?"})
-    # print("Weather response:", weather_response)
+    # Set up MongoCheckpointer (replace with your MongoDB URI and collection)
+    async with AsyncMongoDBSaver.from_conn_string(
+        conn_string=conn_string,
+        db_name="langgraph_db",
+        checkpoint_collection_name="chat_checkpoints_aio",
+        writes_collection_name="chat_writes_aio",
+    ) as checkpointer:
 
-    print("Welcome to the CLI Chat Application! Type 'exit' to quit.")
-    
+        builder = StateGraph(MessagesState)
+        builder.add_node(call_model)
+        builder.add_node(ToolNode(tools))
+        builder.add_edge(START, "call_model")
+        builder.add_conditional_edges(
+            "call_model",
+            tools_condition,
+        )
+        builder.add_edge("tools", "call_model")
+        graph = builder.compile(checkpointer=checkpointer)  # <-- Pass checkpointer here
 
-    state = MessagesState(messages=[])
+        print("Welcome to the CLI Chat Application! Type 'exit' to quit.")
 
-    while True:
-        user_input = input("You: ")
-        if user_input.lower() == 'exit':
-            break
+        # Try to load previous state, or start fresh
+        # state = checkpointer.get("my_chat_session")
+        # if state is None:
+        state = MessagesState(messages=[])
 
-        state["messages"].append(HumanMessage(content=user_input))
-        # Use astream to process the conversation and collect the final state
-        final_state = None
-        # async for message, config in graph.astream(state, stream_mode="messages"):
-        #     final_state = message  # message is the updated state at each step
+        # When invoking your graph, provide a thread_id for persistence
+        config = {"configurable": {"thread_id": "conversation_1"}}
 
-        # if final_state is not None:
-        #     # issue is that final_state is a AIMessageChunk
-        #     state = cast(MessagesState, final_state)
-        #     print("Bot:", state["messages"][-1].content)
-        # else:
-        #     print("Bot: (no response)")
-        async for current_state in graph.astream(state, stream_mode="values"):
-            final_state = current_state  # This is the complete state
-        
-        if final_state is not None:
-            state = cast(MessagesState, final_state)
-            print("Bot:", state["messages"][-1].content)
-        else:
-            print("Bot: (no response)")
+        while True:
+            user_input = input("You: ")
+            if user_input.lower() == "exit":
+                break
+
+            state["messages"].append(HumanMessage(content=user_input))
+            final_state = None
+            async for current_state in graph.astream(
+                state, stream_mode="values", config=config
+            ):
+                final_state = current_state
+
+            if final_state is not None:
+                state = cast(MessagesState, final_state)
+                print("Bot:", state["messages"][-1].content)
+                # Save state after each turn
+                # await checkpointer.put("my_chat_session", state)
+            else:
+                print("Bot: (no response)")
 
 
 asyncio.run(main())
