@@ -14,7 +14,7 @@ import httpx
 # Example: client = httpx.Client(verify=False)
 
 import asyncio
-from typing import cast
+from typing import Optional, cast
 from langgraph.checkpoint.mongodb import AsyncMongoDBSaver
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain_core.messages import ToolMessage
@@ -51,7 +51,7 @@ client = MultiServerMCPClient(
 
 STATE_FILE = "state.json"
 
-def save_state(state):
+def save_state(state: MessagesState):
     # Convert MessagesState to a serializable dict
     with open(STATE_FILE, "w") as f:
         json.dump(
@@ -60,7 +60,7 @@ def save_state(state):
             indent=2
         )
 
-def load_state():
+def load_state() -> Optional[MessagesState]:
     if not os.path.exists(STATE_FILE):
         return None
     with open(STATE_FILE, "r") as f:

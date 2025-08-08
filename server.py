@@ -1,6 +1,7 @@
 import asyncio
 import json
-from typing import List, Optional
+from typing import Annotated, List, Optional, TypedDict
+
 # from typing import list
 from fastapi.params import Depends
 from langchain_openai import ChatOpenAI
@@ -12,6 +13,11 @@ from fastapi.responses import (
 from langgraph.graph import StateGraph, MessagesState, START
 from langchain_oai_mcp_manual import build_graph, load_state
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
+from langgraph.graph import StateGraph, MessagesState, START
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.messages import AIMessageChunk
+
+from langgraph.config import get_stream_writer
 
 from dotenv import load_dotenv
 import os
@@ -26,10 +32,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 router = APIRouter()
 app = FastAPI()
 
+
 class Message(BaseModel):
     id: str
     role: str
     content: str
+
 
 class ChatPayload(BaseModel):
     messages: List[Message]
@@ -41,6 +49,7 @@ class ChatPayload(BaseModel):
         }
     }
 
+
 async def send_completion_events(messages, chat: ChatOpenAI):
     async for patch in chat.astream_log(messages):
         for op in patch.ops:
@@ -50,21 +59,18 @@ async def send_completion_events(messages, chat: ChatOpenAI):
                 )
                 json_dict = {"type": "llm_chunk", "content": content}
                 json_str = json.dumps(json_dict)
-        
+
                 yield f"data: {json_str}\n\n"
         # yield f"data: {json.dumps(patch.to_dict())}\n\n"
     # for message in messages:
     #     completion = chat.send_message(message["content"])
-    #     yield f"data: {json.dumps({'id': message['id'], 'role': 'bot', 'content': completion})}\n\n"    
+    #     yield f"data: {json.dumps({'id': message['id'], 'role': 'bot', 'content': completion})}\n\n"
+
 
 @app.post("/api/completion")
 async def stream(request: Request, payload: ChatPayload):
     messages = [
-        {
-            "id": message.id,
-            "role": message.role,
-            "content": message.content
-        }
+        {"id": message.id, "role": message.role, "content": message.content}
         for message in payload.messages
     ]
     chat = ChatOpenAI()
@@ -72,6 +78,129 @@ async def stream(request: Request, payload: ChatPayload):
         send_completion_events(messages, chat=chat),
         media_type="text/event-stream",
     )
+
+
+async def streaming_ainvoke(state: MessagesState):
+    llm = ChatOpenAI(model="gpt-4o-mini", streaming=True)
+    aiMessage = await llm.ainvoke([HumanMessage(content="Count to 100")])
+    print(f"aiMessage in streaming_ainvoke: {aiMessage}")  # Debugging line
+    return {"messages": state["messages"] + [aiMessage]}
+
+
+@app.post("/api/ainvoke")
+async def chat_ainvoke(request: Request, payload: ChatPayload):
+    messages = [HumanMessage(content=message.content) for message in payload.messages]
+
+    # Create a LangGraph with a streaming node
+    builder = StateGraph(MessagesState)
+    builder.add_node("stream_node", streaming_ainvoke)
+    builder.set_entry_point("stream_node")
+    builder.set_finish_point("stream_node")
+    graph = builder.compile()
+
+    async def stream_llm():
+        # Change stream_mode to "messages"
+        async for chunk, _ in graph.astream(
+            MessagesState(messages=messages), stream_mode="messages"
+        ):
+            if isinstance(chunk, AIMessageChunk):
+                print(f"AIMessageChunk received: {chunk}")
+                yield chunk.content
+            else:
+                print(f"Non-AIMessageChunk received: {chunk}")
+                print(f"Output in /api/ainvoke: {chunk}")  # Debugging line
+                yield chunk.content
+
+    return StreamingResponse(stream_llm(), media_type="text/event-stream")
+
+
+async def streaming_llm(state: MessagesState):
+    llm = ChatOpenAI(model="gpt-4o-mini", streaming=True)
+    content = ""
+    async for chunk in llm.astream([HumanMessage(content="Count to 100")]):
+        # Each chunk is a ChatGenerationChunk, extract content/token
+        if chunk.content:
+            content += chunk.content
+            print(f"Chunk in streaming_llm: {chunk.content}")  # Debugging line
+            yield chunk.content
+
+    yield {"messages": state["messages"] + [AIMessage(content=content)]}
+
+
+async def writer_llm(state: MessagesState):
+    llm = ChatOpenAI(model="gpt-4o-mini", streaming=True)
+    writer = get_stream_writer()
+    content = ""
+    async for chunk in llm.astream([HumanMessage(content="Count to 100")]):
+        # Each chunk is a ChatGenerationChunk, extract content/token
+        if chunk.content:
+            content += chunk.content
+            print(f"Chunk in writer_llm: {chunk.content}")  # Debugging line
+            writer({"progress": "Streaming chunk", "content": chunk.content})
+            yield chunk.content
+
+    yield {"messages": state["messages"] + [AIMessage(content=content)]}
+
+
+@app.post("/api/writer")
+async def chat_writer(request: Request, payload: ChatPayload):
+    messages = [HumanMessage(content=message.content) for message in payload.messages]
+
+    # Create a LangGraph with a streaming node
+    builder = StateGraph(MessagesState)
+    builder.add_node("stream_node", writer_llm)
+    builder.set_entry_point("stream_node")
+    builder.set_finish_point("stream_node")
+    graph = builder.compile()
+
+    async def stream_llm():
+        # Change stream_mode to "messages"
+        async for output in graph.astream(
+            MessagesState(messages=messages), stream_mode="custom"
+        ):
+            print(f"Output in stream_llm: {output}")  # Debugging line
+            yield f"data: {output["content"]}\n\n"
+
+    return StreamingResponse(stream_llm(), media_type="text/event-stream")
+
+
+@app.post("/api/messages")
+async def chat_messages(request: Request, payload: ChatPayload):
+    messages = [HumanMessage(content=message.content) for message in payload.messages]
+
+    # Create a LangGraph with a streaming node
+    builder = StateGraph(MessagesState)
+    builder.add_node("stream_node", streaming_llm)
+    builder.set_entry_point("stream_node")
+    builder.set_finish_point("stream_node")
+    graph = builder.compile()
+
+    # async def stream():
+    #     async for output in graph.astream(MessagesState(messages=messages), stream_mode="values"):
+    #         yield output["messages"][-1].content
+
+    # return StreamingResponse(stream(), media_type="text/event-stream")
+
+    async def stream_llm():
+        # Change stream_mode to "messages"
+        async for output in graph.astream(
+            MessagesState(messages=messages), stream_mode="messages"
+        ):
+            # The output will be a tuple of (message_chunk, metadata)
+            print(f"Output in stream_llm: {output}")  # Debugging line
+            [message_chunk, _] = output
+            yield f"data: {message_chunk.content}\n\n"
+
+    return StreamingResponse(
+        stream_llm(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
@@ -113,8 +242,10 @@ async def chat_endpoint(request: Request):
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 
+
 class HelloWorldParams(BaseModel):
     content: Optional[str] = "Default parameter"
+
 
 @app.get("/hello")
 async def hello(params: HelloWorldParams = Depends()):
@@ -122,4 +253,4 @@ async def hello(params: HelloWorldParams = Depends()):
 
 
 if __name__ == "__main__":
-        uvicorn.run("server:app", host="0.0.0.0", port=9090, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=9090, reload=True)

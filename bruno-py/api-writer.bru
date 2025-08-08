@@ -1,0 +1,23 @@
+meta {
+  name: /api/writer
+  type: http
+  seq: 5
+}
+
+post {
+  url: http://127.0.0.1:9090/api/writer
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "messages": [
+      {
+        "id": "1",
+        "role": "user",
+        "content": "Count to 100"
+      }
+    ]
+  }
+}
