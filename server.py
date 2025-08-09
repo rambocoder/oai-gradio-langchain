@@ -217,23 +217,26 @@ async def chat_writer(request: Request, payload: ChatPayload):
     return StreamingResponse(stream_llm(), media_type="text/event-stream")
 
 
+from graph_manager import persistent_graph
+
+
 @app.post("/api/messages")
 async def chat_messages(request: Request, payload: ChatPayload):
+    # Get the authorization token from headers
+    auth_token = request.headers.get("Authorization")
     messages = [HumanMessage(content=message.content) for message in payload.messages]
 
-    # Create a LangGraph with a streaming node
-    memory = MemorySaver()
-    builder = StateGraph(MessagesState)
-    builder.add_node("stream_node", streaming_llm)
-    builder.set_entry_point("stream_node")
-    builder.set_finish_point("stream_node")
-    graph = builder.compile(checkpointer=memory)
-
-    config = {"configurable": {"thread_id": "abc123"}}
+    config = {
+        "configurable": {
+            "thread_id": "abc123",
+            "token": auth_token,  # Pass the token to the graph
+        }
+    }
 
     async def stream_llm():
         # Change stream_mode to "messages"
-        async for chunk, metadata in graph.astream(
+        print(f"Config in /api/messages: {config}")
+        async for chunk, metadata in persistent_graph.astream(
             MessagesState(messages=messages), config=config, stream_mode="messages"
         ):
             # The output will be a tuple of (message_chunk, metadata)
@@ -247,14 +250,14 @@ async def chat_messages(request: Request, payload: ChatPayload):
             #         yield chunk.content
 
         # After streaming completes, get full state (including full message history)
-        state = graph.get_state(config)
+        state = persistent_graph.get_state(config)
         full_messages = state.values.get("messages", [])
         print(f"Full messages length: {len(full_messages)}")
         print(f"Full messages: {full_messages}")
 
         # full_messages now contains the complete conversation history
-        for msg in full_messages:
-            print(msg.type, msg.content)
+        # for msg in full_messages:
+        #     print(msg.type, msg.content)
 
     return StreamingResponse(
         stream_llm(),
