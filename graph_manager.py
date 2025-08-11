@@ -10,8 +10,8 @@ from init_system_prompt import InitSystemPromptNode, MyMessagesState
 def should_init_system(state: MyMessagesState):
     """Conditional edge: check if we need to initialize system prompt"""
     if not state["messages"] or not isinstance(state["messages"][0], SystemMessage):
-        return "init_system_prompt"
-    return "set_timestamp"
+        return "YES"
+    return "NO"
 
 
 def set_timestamp(state: MyMessagesState):
@@ -39,7 +39,14 @@ builder = StateGraph(MyMessagesState)
 builder.add_node("set_timestamp", set_timestamp)
 builder.add_node("init_system_prompt", InitSystemPromptNode())
 builder.add_node("stream_node", stream_node)
-builder.add_conditional_edges(START, should_init_system)
+builder.add_conditional_edges(
+    START,
+    should_init_system,
+    {
+        "YES": "init_system_prompt",
+        "NO": "set_timestamp",
+    },
+)
 builder.add_edge("init_system_prompt", "set_timestamp")
 builder.add_edge("set_timestamp", "stream_node")
 builder.set_finish_point("stream_node")
