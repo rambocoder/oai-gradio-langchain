@@ -52,7 +52,7 @@ builder.add_edge("set_timestamp", "stream_node")
 builder.set_finish_point("stream_node")
 persistent_graph = builder.compile(checkpointer=memory)
 
-img = persistent_graph.get_graph().draw_mermaid_png()
+img = persistent_graph.get_graph(xray=True).draw_mermaid_png()
 with open("graph.png", "wb") as f:
     f.write(img)
 
