@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
 </head>
+
 <body class="bg-gray-900 text-white min-h-screen flex flex-col">
     <header class="bg-gray-800 py-4 px-6 flex justify-between items-center">
         <h1 class="text-2xl font-bold">Multiroom Chat</h1>
@@ -32,22 +34,33 @@
 
         <div class="flex-grow bg-gray-800 p-6 rounded-lg flex flex-col">
             <div id="chatbox" class="flex-grow overflow-y-auto mb-4 space-y-4">
-                <!-- Messages will be added here -->
+                <div class="mb-4">
+                    <label for="recipient-select" class="block text-sm font-medium text-gray-400 mb-1">Send to:</label>
+                    <select id="recipient-select" class="bg-gray-700 text-white py-2 px-4 rounded focus:outline-none">
+                        <option value="">Everyone</option>
+                        <!-- Recipients will be added here -->
+                </div>
             </div>
+            <!-- Messages will be added here -->
+        </div>
 
-            <div class="flex">
-                <input type="text" id="messageInput" class="flex-grow bg-gray-700 text-white py-3 px-4 rounded-l-lg focus:outline-none" placeholder="Enter your message...">
-                <button id="sendMessageBtn" class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-r-lg focus:outline-none">Send</button>
-            </div>
+        <div class="flex">
+            <input type="text" id="messageInput"
+                class="flex-grow bg-gray-700 text-white py-3 px-4 rounded-l-lg focus:outline-none"
+                placeholder="Enter your message...">
+            <button id="sendMessageBtn"
+                class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-r-lg focus:outline-none">Send</button>
+        </div>
         </div>
     </main>
 
-    <div id="typing-indicator" class="fixed bottom-0 left-0 w-full bg-gray-700 text-center py-2 text-sm opacity-0 transition-opacity duration-300">
+    <div id="typing-indicator"
+        class="fixed bottom-0 left-0 w-full bg-gray-700 text-center py-2 text-sm opacity-0 transition-opacity duration-300">
         Someone is typing...
     </div>
 
     <script>
-        const socket = io("/socket");
+        const socket = io();
         const messageInput = document.getElementById('messageInput');
         const sendMessageBtn = document.getElementById('sendMessageBtn');
         const chatbox = document.getElementById('chatbox');
@@ -56,6 +69,7 @@
         const typingIndicator = document.getElementById('typing-indicator');
         const currentUserSpan = document.getElementById('current-user');
 
+        const recipientSelect = document.getElementById('recipient-select');
         let currentRoom = roomSelect.value;
         let username = ''; // Will be set after joining
 
@@ -97,7 +111,8 @@
         function sendMessage() {
             const message = messageInput.value.trim();
             if (message) {
-                socket.emit('message', { room: currentRoom, message: message });
+                const recipient = recipientSelect.value;
+                socket.emit('message', { room: currentRoom, message: message, recipient: recipient });
                 messageInput.value = '';
             }
         }
@@ -109,7 +124,7 @@
 
             const senderSpan = document.createElement('span');
             senderSpan.classList.add('font-bold', 'mr-2');
-            senderSpan.textContent = `${data.username}:`;
+            senderSpan.textContent = `${data.user.username}:`;
 
             const messageText = document.createElement('span');
             messageText.textContent = data.message;
@@ -117,10 +132,10 @@
             messageElement.appendChild(senderSpan);
             messageElement.appendChild(messageText);
 
-            if (data.username === username) {
-                 messageElement.classList.add('bg-blue-600', 'ml-auto');
+            if (data.user.username === username) {
+                messageElement.classList.add('bg-blue-600', 'ml-auto');
             } else {
-                 messageElement.classList.add('bg-gray-700', 'mr-auto');
+                messageElement.classList.add('bg-gray-700', 'mr-auto');
             }
 
 
@@ -128,15 +143,26 @@
             chatbox.scrollTop = chatbox.scrollHeight; // Auto-scroll
         });
 
-         // Update user list
+        // Update user list
         socket.on('user_list', (data) => {
             usersList.innerHTML = ''; // Clear current list
+
+            // Populate recipient dropdown
+            recipientSelect.innerHTML = '<option value="">Everyone</option>'; // Add default 'Everyone' option
             data.users.forEach(user => {
-                const userItem = document.createElement('li');
-                userItem.classList.add('text-gray-400');
-                userItem.textContent = user;
-                usersList.appendChild(userItem);
-            });
+                if (user !== username) { // Don't add yourself to the recipient list
+                    const option = document.createElement('option');
+                    option.value = user;
+                    option.textContent = user;
+                    recipientSelect.appendChild(option);
+                    data.users.forEach(user => {
+                        const userItem = document.createElement('li');
+                        userItem.classList.add('text-gray-400');
+                        userItem.textContent = user.username;
+                        usersList.appendChild(userItem);
+                    });
+                }}
+            );
         });
 
 
@@ -157,7 +183,7 @@
         chatbox.addEventListener('click', (event) => {
             const messageElement = event.target.closest('.p-3.rounded-lg');
             if (messageElement) {
-                 // Simple toggle of a "liked" class - server-side would handle persistence
+                // Simple toggle of a "liked" class - server-side would handle persistence
                 messageElement.classList.toggle('border-2');
                 messageElement.classList.toggle('border-yellow-500');
             }
@@ -166,4 +192,5 @@
 
     </script>
 </body>
+
 </html>

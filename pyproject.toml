@@ -4,11 +4,13 @@ version = "0.1.0"
 description = "Your project description"
 authors = [{ name="Your Name", email="your@email.com" }]
 dependencies = [
-    "langchain-openai",
-    "pydantic",
-    "fastapi",
-    "python-dotenv",
-    "uvicorn"
+ "langchain-openai",
+ "python-socketio",
+ "redis",
+ "pydantic",
+ "fastapi",
+ "python-dotenv",
+ "uvicorn",
 ]
 
 [project.optional-dependencies]
